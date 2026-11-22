@@ -1,0 +1,65 @@
+# Pool heating card – built-in cards only.
+# Dashboard -> Edit -> Add card -> Manual, then paste.
+type: vertical-stack
+cards:
+  - type: heading
+    heading: Pool heating
+    icon: mdi:pool-thermometer
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: tile
+        entity: input_boolean.pool_heating_season
+        name: Season
+        icon: mdi:pool-thermometer
+        vertical: true
+        tap_action:
+          action: toggle
+      - type: tile
+        entity: input_boolean.pool_heat_dry_run
+        name: Dry run
+        icon: mdi:test-tube
+        vertical: true
+        tap_action:
+          action: toggle
+      - type: tile
+        entity: sensor.pool_heat_solar_surplus
+        name: Surplus
+        vertical: true
+  - type: markdown
+    content: >
+      **Last decision:**
+      {{ states('input_text.pool_heat_last_decision') }}
+  - type: entities
+    title: Settings
+    state_color: true
+    entities:
+      - entity: input_boolean.pool_heat_allow_cheap_grid
+        name: Allow cheap grid power
+      - entity: input_datetime.pool_heat_window_start
+        name: Window start
+      - entity: input_datetime.pool_heat_window_end
+        name: Window end
+      - type: section
+        label: Surplus thresholds
+      - entity: input_number.pool_heat_boost_w
+        name: High preset above
+      - entity: input_number.pool_heat_comfort_w
+        name: Medium preset above
+      - entity: input_number.pool_heat_sleep_w
+        name: Start (low preset) above
+      - entity: input_number.pool_heat_stop_w
+        name: Stop below
+      - type: section
+        label: Price limits
+      - entity: input_number.pool_heat_cheap_price
+        name: Cheap grid price
+      - entity: input_number.pool_heat_max_price
+        name: Never run above
+      - type: section
+        label: Compressor protection
+      - entity: input_number.pool_heat_min_run
+        name: Minimum run
+      - entity: input_number.pool_heat_min_rest
+        name: Minimum rest

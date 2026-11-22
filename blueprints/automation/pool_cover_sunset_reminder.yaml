@@ -1,0 +1,86 @@
+blueprint:
+  name: Pool cover – sunset reminder
+  description: >
+    During pool heating season, sends a reminder before sunset if the pool is
+    still uncovered, so the day's heat isn't lost overnight.
+  domain: automation
+  author: r5e
+  source_url: https://github.com/r5e/ha-pool-heat-pump-solar/blob/main/blueprints/automation/pool_cover_sunset_reminder.yaml
+  input:
+    cover_sensor:
+      name: Pool cover sensor
+      description: An entity that shows whether the pool is covered.
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - cover
+            - input_boolean
+    uncovered_state:
+      name: State meaning "pool uncovered"
+      description: >
+        The state of the cover sensor when the pool is NOT covered
+        (for example "off", "on" or "open").
+      default: "off"
+      selector:
+        text:
+    season:
+      name: Heating season switch
+      default: input_boolean.pool_heating_season
+      selector:
+        entity:
+          domain: input_boolean
+    offset:
+      name: Offset from sunset
+      description: >
+        When to remind, relative to sunset. Use a minus sign for before
+        sunset, for example "-00:30:00" for 30 minutes before.
+      default: "-00:30:00"
+      selector:
+        text:
+    water_temp:
+      name: Water temperature sensor (optional)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    notify_action:
+      name: Extra notification (optional)
+      description: >
+        Actions to run in addition to the Home Assistant notification,
+        for example a push notification to your phone.
+      default: []
+      selector:
+        action: {}
+
+mode: single
+
+variables:
+  cover_entity: !input cover_sensor
+  uncovered: !input uncovered_state
+  season_entity: !input season
+  temp_entity: !input water_temp
+  message: >
+    The pool is still uncovered and sunset is approaching.
+    {%- if temp_entity %} Water is {{ states(temp_entity) }} °C.{% endif %}
+    Cover it to keep the heat in.
+
+triggers:
+  - trigger: sun
+    event: sunset
+    offset: !input offset
+
+conditions:
+  - condition: template
+    value_template: "{{ is_state(season_entity, 'on') }}"
+  - condition: template
+    value_template: "{{ is_state(cover_entity, uncovered) }}"
+
+actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: pool_cover_reminder
+      title: Cover the pool
+      message: "{{ message }}"
+  - choose: []
+    default: !input notify_action

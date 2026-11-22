@@ -1,0 +1,168 @@
+# =============================================================================
+# Pool heat pump solar controller – helpers and surplus sensor
+# https://github.com/r5e/ha-pool-heat-pump-solar
+#
+# Copy to /config/packages/pool_heat_pump_helpers.yaml and restart Home
+# Assistant. (Packages must be enabled – see the README.)
+#
+# BEFORE YOU RESTART: edit the two entity IDs in the surplus sensor below
+# (marked "CHANGE ME") to match your own sensors.
+#
+# After the restart, run the script "Pool heat – set default values" once.
+# =============================================================================
+
+input_boolean:
+  pool_heating_season:
+    name: Pool heating season
+    icon: mdi:pool-thermometer
+  pool_heat_dry_run:
+    name: Pool heat – dry run
+    icon: mdi:test-tube
+  pool_heat_allow_cheap_grid:
+    name: Pool heat – allow cheap grid power
+    icon: mdi:transmission-tower-import
+
+input_number:
+  pool_heat_boost_w:
+    name: Pool heat – boost above
+    min: 1000
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+  pool_heat_comfort_w:
+    name: Pool heat – comfort above
+    min: 1000
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+  pool_heat_sleep_w:
+    name: Pool heat – start (sleep) above
+    min: 500
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+  pool_heat_stop_w:
+    name: Pool heat – stop below
+    min: 0
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+  pool_heat_cheap_price:
+    name: Pool heat – cheap grid price
+    min: -1
+    max: 1
+    step: 0.01
+    unit_of_measurement: "$/kWh"
+    mode: box
+  pool_heat_max_price:
+    name: Pool heat – never run above price
+    min: 0
+    max: 5
+    step: 0.05
+    unit_of_measurement: "$/kWh"
+    mode: box
+  pool_heat_min_run:
+    name: Pool heat – minimum run time
+    min: 5
+    max: 60
+    step: 5
+    unit_of_measurement: min
+    mode: box
+  pool_heat_min_rest:
+    name: Pool heat – minimum rest time
+    min: 5
+    max: 60
+    step: 5
+    unit_of_measurement: min
+    mode: box
+
+input_datetime:
+  pool_heat_window_start:
+    name: Pool heat – window start
+    has_date: false
+    has_time: true
+  pool_heat_window_end:
+    name: Pool heat – window end
+    has_date: false
+    has_time: true
+
+input_text:
+  pool_heat_last_decision:
+    name: Pool heat – last decision
+    max: 255
+    icon: mdi:message-text-outline
+
+# -----------------------------------------------------------------------------
+# Solar surplus available to the heat pump
+#
+#   surplus = heat pump power - net grid power
+#
+# Net grid power must be SIGNED: positive when importing, negative when
+# exporting. If your meter gives an unsigned power plus an export flag, build
+# a signed sensor first (see the README).
+#
+#   Exporting 2 kW, heat pump off        ->  0 - (-2000) = 2000 W available
+#   Heat pump 4 kW, still exporting 0.5  ->  4000 + 500  = 4500 W
+#   Heat pump 4 kW, importing 1 kW       ->  4000 - 1000 = 3000 W
+#
+# Other household loads reduce export, so they lower the surplus automatically.
+# -----------------------------------------------------------------------------
+template:
+  - sensor:
+      - name: Pool heat solar surplus
+        unique_id: pool_heat_solar_surplus
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        icon: mdi:solar-power-variant
+        # CHANGE ME (4 places below):
+        #   sensor.pool_heat_pump_power -> your heat pump power sensor (W)
+        #   sensor.net_grid_power       -> your signed net grid power sensor (W)
+        state: >
+          {{ (states('sensor.pool_heat_pump_power') | float(0)
+              - states('sensor.net_grid_power') | float(0)) | round(0) }}
+        availability: >
+          {{ has_value('sensor.pool_heat_pump_power')
+             and has_value('sensor.net_grid_power') }}
+
+script:
+  pool_heat_set_defaults:
+    alias: Pool heat – set default values
+    icon: mdi:restore
+    sequence:
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_boost_w }
+        data: { value: 5000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_comfort_w }
+        data: { value: 4000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_sleep_w }
+        data: { value: 3000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_stop_w }
+        data: { value: 2000 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_cheap_price }
+        data: { value: 0.10 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_max_price }
+        data: { value: 0.40 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_min_run }
+        data: { value: 20 }
+      - action: input_number.set_value
+        target: { entity_id: input_number.pool_heat_min_rest }
+        data: { value: 10 }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.pool_heat_window_start }
+        data: { time: "09:30:00" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.pool_heat_window_end }
+        data: { time: "15:30:00" }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.pool_heat_dry_run }

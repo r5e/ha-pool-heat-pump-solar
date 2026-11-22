@@ -1,0 +1,405 @@
+blueprint:
+  name: Pool heat pump – solar surplus controller
+  description: >
+    Runs a pool heat pump from rooftop solar surplus, stepping between three
+    presets (for example sleep / comfort / boost) as the surplus changes.
+    Respects a time window, live electricity prices, a pool pump interlock and
+    minimum run/rest times for the compressor. A dry-run switch logs what it
+    would do without touching the heat pump.
+
+    Requires the helper package from
+    https://github.com/r5e/ha-pool-heat-pump-solar – install that first.
+  domain: automation
+  author: r5e
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/r5e/ha-pool-heat-pump-solar/blob/main/blueprints/automation/pool_heat_pump_solar_controller.yaml
+  input:
+    equipment:
+      name: Equipment
+      icon: mdi:pool
+      input:
+        heat_pump:
+          name: Heat pump
+          description: The pool heat pump's climate entity.
+          selector:
+            entity:
+              domain: climate
+        heat_mode:
+          name: Heating HVAC mode
+          description: The HVAC mode that means "heating" on your heat pump.
+          default: heat
+          selector:
+            text:
+        preset_low:
+          name: Low preset
+          description: Preset used for a moderate surplus (lowest power).
+          default: sleep
+          selector:
+            text:
+        preset_mid:
+          name: Medium preset
+          description: Preset used for a good surplus.
+          default: comfort
+          selector:
+            text:
+        preset_high:
+          name: High preset
+          description: Preset used for a high surplus or negative prices.
+          default: boost
+          selector:
+            text:
+        pump_running:
+          name: Pool pump running
+          description: >
+            An entity that is "on" while the pool's filter pump is running
+            (water flowing through the heat pump). The heat pump is never
+            run when this is off.
+          selector:
+            entity:
+              domain:
+                - switch
+                - binary_sensor
+                - input_boolean
+    energy:
+      name: Energy and prices
+      icon: mdi:solar-power
+      input:
+        surplus_sensor:
+          name: Solar surplus sensor
+          description: The surplus sensor created by the helper package.
+          default: sensor.pool_heat_solar_surplus
+          selector:
+            entity:
+              domain: sensor
+        import_price:
+          name: Import (general) price
+          description: Current price to buy electricity, in $/kWh.
+          selector:
+            entity:
+              domain: sensor
+        feed_in_price:
+          name: Feed-in price (optional)
+          description: >
+            Current price paid for exported electricity, in $/kWh, where
+            positive means you are paid. Leave empty if not available.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+        price_spike:
+          name: Price spike flag (optional)
+          description: A binary sensor that is "on" during price spikes. Leave empty if not available.
+          default: ""
+          selector:
+            entity:
+              domain: binary_sensor
+        freshness_sensor:
+          name: Meter freshness check (optional, recommended)
+          description: >
+            A RAW sensor from your energy meter that reports regularly, for
+            example the grid channel's power. If it hasn't reported within the
+            maximum age below, the data is treated as stale and the heat pump
+            is not run. Protects against a meter that freezes while still
+            showing its last values. Leave empty to skip this check.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+        max_data_age:
+          name: Maximum data age
+          description: >
+            How long the freshness sensor may go without reporting before the
+            data is treated as stale. Set to about 3 to 5 times your meter's
+            update interval.
+          default: 5
+          selector:
+            number:
+              min: 1
+              max: 60
+              step: 1
+              unit_of_measurement: min
+    helpers:
+      name: Helpers (from the package)
+      icon: mdi:tune
+      collapsed: true
+      input:
+        season:
+          name: Heating season switch
+          default: input_boolean.pool_heating_season
+          selector:
+            entity:
+              domain: input_boolean
+        dry_run:
+          name: Dry run switch
+          default: input_boolean.pool_heat_dry_run
+          selector:
+            entity:
+              domain: input_boolean
+        allow_cheap:
+          name: Allow cheap grid power switch
+          default: input_boolean.pool_heat_allow_cheap_grid
+          selector:
+            entity:
+              domain: input_boolean
+        boost_w:
+          name: High preset above (W)
+          default: input_number.pool_heat_boost_w
+          selector:
+            entity:
+              domain: input_number
+        comfort_w:
+          name: Medium preset above (W)
+          default: input_number.pool_heat_comfort_w
+          selector:
+            entity:
+              domain: input_number
+        sleep_w:
+          name: Start / low preset above (W)
+          default: input_number.pool_heat_sleep_w
+          selector:
+            entity:
+              domain: input_number
+        stop_w:
+          name: Stop below (W)
+          default: input_number.pool_heat_stop_w
+          selector:
+            entity:
+              domain: input_number
+        cheap_price:
+          name: Cheap grid price ($/kWh)
+          default: input_number.pool_heat_cheap_price
+          selector:
+            entity:
+              domain: input_number
+        max_price:
+          name: Never run above price ($/kWh)
+          default: input_number.pool_heat_max_price
+          selector:
+            entity:
+              domain: input_number
+        min_run:
+          name: Minimum run time (min)
+          default: input_number.pool_heat_min_run
+          selector:
+            entity:
+              domain: input_number
+        min_rest:
+          name: Minimum rest time (min)
+          default: input_number.pool_heat_min_rest
+          selector:
+            entity:
+              domain: input_number
+        window_start:
+          name: Window start
+          default: input_datetime.pool_heat_window_start
+          selector:
+            entity:
+              domain: input_datetime
+        window_end:
+          name: Window end
+          default: input_datetime.pool_heat_window_end
+          selector:
+            entity:
+              domain: input_datetime
+        last_decision:
+          name: Last decision text
+          default: input_text.pool_heat_last_decision
+          selector:
+            entity:
+              domain: input_text
+
+mode: single
+
+triggers:
+  - trigger: time_pattern
+    minutes: "/5"
+  - trigger: state
+    entity_id:
+      - !input season
+      - !input dry_run
+      - !input pump_running
+      - !input import_price
+
+variables:
+  hp: !input heat_pump
+  heat_mode: !input heat_mode
+  preset_low: !input preset_low
+  preset_mid: !input preset_mid
+  preset_high: !input preset_high
+  pump_entity: !input pump_running
+  surplus_entity: !input surplus_sensor
+  import_price_entity: !input import_price
+  feed_in_entity: !input feed_in_price
+  spike_entity: !input price_spike
+  freshness_entity: !input freshness_sensor
+  max_data_age: !input max_data_age
+  season_entity: !input season
+  dry_run_entity: !input dry_run
+  allow_cheap_entity: !input allow_cheap
+  boost_w_entity: !input boost_w
+  comfort_w_entity: !input comfort_w
+  sleep_w_entity: !input sleep_w
+  stop_w_entity: !input stop_w
+  cheap_price_entity: !input cheap_price
+  max_price_entity: !input max_price
+  min_run_entity: !input min_run
+  min_rest_entity: !input min_rest
+  window_start_entity: !input window_start
+  window_end_entity: !input window_end
+  last_decision_entity: !input last_decision
+
+actions:
+  # --- Gather inputs ---------------------------------------------------------
+  - variables:
+      dry_run: "{{ is_state(dry_run_entity, 'on') }}"
+      hp_ok: "{{ states(hp) not in ['unavailable', 'unknown'] }}"
+      hp_on: "{{ states(hp) not in ['off', 'unavailable', 'unknown'] }}"
+      current_preset: "{{ state_attr(hp, 'preset_mode') }}"
+      mins_in_state: >
+        {% set s = states[hp] %}
+        {{ ((now() - s.last_changed).total_seconds() / 60) | round(1) if s else 0 }}
+      surplus_ok: "{{ has_value(surplus_entity) }}"
+      data_age: >
+        {% set s = states[freshness_entity] if freshness_entity else none %}
+        {{ ((now() - s.last_reported).total_seconds() / 60) | round(1) if s else 0 }}
+      data_stale: >
+        {% if freshness_entity %}
+          {{ states[freshness_entity] is none or data_age > (max_data_age | float(5)) }}
+        {% else %}
+          false
+        {% endif %}
+      surplus: "{{ states(surplus_entity) | float(0) }}"
+      price: "{{ states(import_price_entity) | float(99) }}"
+      feed_in: "{{ states(feed_in_entity) | float(0) if feed_in_entity else 0 }}"
+      spike: "{{ is_state(spike_entity, 'on') if spike_entity else false }}"
+      in_window: >
+        {{ today_at(states(window_start_entity)) <= now()
+           < today_at(states(window_end_entity)) }}
+      min_run: "{{ states(min_run_entity) | float(20) }}"
+      min_rest: "{{ states(min_rest_entity) | float(10) }}"
+
+  # --- Decide ----------------------------------------------------------------
+  - variables:
+      decision: >
+        {% set boost_w   = states(boost_w_entity)   | float(5000) %}
+        {% set comfort_w = states(comfort_w_entity) | float(4000) %}
+        {% set sleep_w   = states(sleep_w_entity)   | float(3000) %}
+        {% set stop_w    = states(stop_w_entity)    | float(2000) %}
+        {% set cheap     = states(cheap_price_entity) | float(0.10) %}
+        {% set max_price = states(max_price_entity) | float(0.40) %}
+        {% set allow_cheap = is_state(allow_cheap_entity, 'on') %}
+        {% if not is_state(season_entity, 'on') %}
+          {% set d = ['off', 'heating season off', true] %}
+        {% elif not is_state(pump_entity, 'on') %}
+          {% set d = ['off', 'pool pump not running', true] %}
+        {% elif not in_window %}
+          {% set d = ['off', 'outside time window', true] %}
+        {% elif spike or price >= max_price %}
+          {% set d = ['off', 'price too high', true] %}
+        {% elif not surplus_ok %}
+          {% set d = ['off', 'surplus unknown', false] %}
+        {% elif data_stale %}
+          {% set d = ['off', 'meter data stale (' ~ data_age ~ ' min old)', false] %}
+        {% elif price <= 0 or feed_in < 0 %}
+          {% set d = [preset_high, 'negative price – use it', false] %}
+        {% elif surplus >= boost_w %}
+          {% set d = [preset_high, 'high surplus', false] %}
+        {% elif surplus >= comfort_w %}
+          {% set d = [preset_mid, 'good surplus', false] %}
+        {% elif surplus >= sleep_w %}
+          {% set d = [preset_low, 'moderate surplus', false] %}
+        {% elif hp_on and surplus >= stop_w %}
+          {% set d = [preset_low, 'holding above stop level', false] %}
+        {% elif allow_cheap and price <= cheap %}
+          {% set d = [preset_low, 'cheap grid power', false] %}
+        {% else %}
+          {% set d = ['off', 'not enough solar', false] %}
+        {% endif %}
+        {{ {'target': d[0], 'reason': d[1], 'safety': d[2]} }}
+      target: "{{ decision.target }}"
+      summary: >
+        {{ now().strftime('%H:%M') }} {{ decision.target | upper }} – {{ decision.reason }}
+        (surplus {{ surplus | int }} W, price {{ '%.3f' | format(price) }}{{
+        ', feed-in %.3f' | format(feed_in) if feed_in_entity else '' }}){{
+        ' [DRY RUN]' if dry_run else '' }}
+
+  - action: input_text.set_value
+    target:
+      entity_id: "{{ last_decision_entity }}"
+    data:
+      value: "{{ summary[:255] }}"
+
+  # --- Act -------------------------------------------------------------------
+  - choose:
+      # Turn OFF: safety reasons immediately, otherwise after the minimum run time
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ target == 'off' and hp_on
+                 and (decision.safety or mins_in_state >= min_run) }}
+        sequence:
+          - action: logbook.log
+            data:
+              name: Pool heat pump
+              message: "{{ 'would turn OFF' if dry_run else 'turning OFF' }}: {{ summary }}"
+              entity_id: "{{ hp }}"
+          - if:
+              - condition: template
+                value_template: "{{ not dry_run }}"
+            then:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: "{{ hp }}"
+                data:
+                  hvac_mode: "off"
+
+      # Turn ON: after the minimum rest time
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ target != 'off' and not hp_on and hp_ok
+                 and mins_in_state >= min_rest }}
+        sequence:
+          - action: logbook.log
+            data:
+              name: Pool heat pump
+              message: "{{ 'would turn ON' if dry_run else 'turning ON' }} ({{ target }}): {{ summary }}"
+              entity_id: "{{ hp }}"
+          - if:
+              - condition: template
+                value_template: "{{ not dry_run }}"
+            then:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: "{{ hp }}"
+                data:
+                  hvac_mode: "{{ heat_mode }}"
+              - delay: "00:00:05"
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: "{{ hp }}"
+                data:
+                  preset_mode: "{{ target }}"
+
+      # Change preset while running
+      - conditions:
+          - condition: template
+            value_template: "{{ target != 'off' and hp_on and current_preset != target }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: Pool heat pump
+              message: >
+                {{ 'would change' if dry_run else 'changing' }} preset
+                {{ current_preset }} → {{ target }}: {{ summary }}
+              entity_id: "{{ hp }}"
+          - if:
+              - condition: template
+                value_template: "{{ not dry_run }}"
+            then:
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: "{{ hp }}"
+                data:
+                  preset_mode: "{{ target }}"
