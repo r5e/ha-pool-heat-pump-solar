@@ -215,8 +215,6 @@ When the controller *would* have changed something, it writes an entry to the Ac
 
 Nothing appears here while it's deciding "off" and the heat pump is already off. That's expected.
 
-![Activity log entries](docs/images/decision-and-logbook.png)
-<!-- SCREENSHOT: Activity log showing "Pool heat pump – would turn ON…" entries -->
 
 ### Step 4 – See why (traces)
 
