@@ -148,7 +148,8 @@ Or go to **Settings → Automations & scenes → Blueprints → Import blueprint
 ```
 https://github.com/r5e/ha-pool-heat-pump-solar/blob/main/blueprints/automation/pool_heat_pump_solar_controller.yaml
 ```
-
+> **Button opens the wrong address?** The import button goes via my.home-assistant.io, which remembers the Home Assistant address you gave it the first time. If it opens the wrong one (for example `http://` instead of `https://`), click **Change** next to the address on that page, enter the address you normally use, and try again.
+> 
 ### 5. Create the automation
 
 Open the blueprint, click **Create automation**, and fill in:
@@ -178,16 +179,62 @@ Copy [`dashboard/pool_heating_card.yaml`](dashboard/pool_heating_card.yaml) into
 
 ## Testing with dry run
 
-With **dry run on**, the controller makes every decision and logs it, but never touches the heat pump.
+With **dry run on**, the controller makes every decision and logs it, but never touches the heat pump. Leave it on until you're happy with what it's deciding.
 
-1. Turn on **Pool heating season**. Leave **dry run** on.
-2. Check **Last decision** on the card. It should update within a few seconds. At night it will say something like `OFF – pool pump not running` or `OFF – outside time window`.
-3. On a sunny day, watch it through the window. Activity log entries will read `would turn ON (comfort)`, `would change preset comfort → boost` and so on.
-4. For the full reasoning behind any run, open the automation and click **⋮ → Traces**.
+### Step 1 – Start it
+
+On the **Pool heating** card:
+
+1. Check **Dry run** shows **On** (the defaults script turned it on).
+2. Tap **Season** to turn it **On**.
+
+Within a few seconds, **Last decision** at the bottom of the card should update.
+
+![Card with season and dry run on](docs/images/test-card-dry-run.png)
+<!-- SCREENSHOT: card with Season On, Dry run On, and a Last decision line showing -->
+
+### Step 2 – Read the last decision
+
+The line shows the time, what the controller chose, why, and the values it used. `[DRY RUN]` at the end confirms it didn't act. What you'll see depends on when you test:
+
+| When | Expected last decision |
+|---|---|
+| Pool pump off (e.g. evening) | `OFF – pool pump not running` |
+| Pump on, outside the time window | `OFF – outside time window` |
+| In the window, cloudy or low solar | `OFF – not enough solar` |
+| In the window, good solar | `SLEEP`, `COMFORT` or `BOOST` with the reason |
+
+At night the surplus shows as a **negative** number. That's normal: you're importing, so there's no spare solar.
+
+### Step 3 – See what it would have done
+
+When the controller *would* have changed something, it writes an entry to the Activity log.
+
+1. Open **Activity** from the sidebar (called **Logbook** in older versions).
+2. Look for entries named **Pool heat pump**, for example `would turn ON (comfort): …` or `would change preset comfort → boost: …`.
+
+Nothing appears here while it's deciding "off" and the heat pump is already off. That's expected.
+
+![Activity log entries](docs/images/decision-and-logbook.png)
+<!-- SCREENSHOT: Activity log showing "Pool heat pump – would turn ON…" entries -->
+
+### Step 4 – See why (traces)
+
+For the full detail of any single run:
+
+1. Go to **Settings → Automations & scenes**.
+2. Open the automation you created from the blueprint.
+3. Click **⋮** (top right) → **Traces**.
+4. Choose a run from the drop-down at the top. The timeline shows what triggered it and which path it took. The **Changed variables** tab shows every value it used (surplus, price, time window and so on).
 
 ![Automation trace](docs/images/trace.png)
-<!-- SCREENSHOT: an automation trace showing the variables and the chosen path -->
+<!-- SCREENSHOT: trace timeline, with the Changed variables tab visible -->
 
+### Step 5 – Watch a sunny day
+
+Leave season and dry run on through a sunny day and check back a few times. The decisions should follow the solar: stepping up as the surplus rises, down as clouds pass, and off when the window ends or the pool pump stops. Note what it would have done; this is what you'll use for [Tuning](#tuning).
+
+When you're not testing, turn **Season** off. With dry run on, nothing can touch the heat pump either way.
 ---
 
 ## Tuning
